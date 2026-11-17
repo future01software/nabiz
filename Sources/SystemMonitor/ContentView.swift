@@ -90,16 +90,12 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 1000, minHeight: 740)
-        // Pencere açıkken Dock'ta görün; kapanınca Dock'tan kalk, sadece üst barda kal.
+        // Pencere açıkken Dock'ta görün (kapanınca Dock'tan kalkmayı AppDelegate yapar).
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
         }
-        .onDisappear {
-            if UserDefaults.standard.bool(forKey: Prefs.showMenuBar, default: true) {
-                NSApp.setActivationPolicy(.accessory)
-            }
-        }
+
         .tint(accent)
         .searchable(text: $search, placement: .toolbar, prompt: "Ad, PID veya kullanıcı ara")
         .onChange(of: search) { _, new in if !new.isEmpty { tab = .processes } }

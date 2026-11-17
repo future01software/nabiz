@@ -34,7 +34,6 @@ struct SystemMonitorApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Pencere açılınca Dock'a gelir (ContentView), kapanınca sadece üst barda kalır.
         // Pencere açıksa Dock'ta, değilse (sadece üst bar) Dock'ta görünmesin.
         let pencereAcik = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
         let ustBar = UserDefaults.standard.bool(forKey: Prefs.showMenuBar, default: true)
@@ -42,6 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
         UNUserNotificationCenter.current().delegate = self
         if UyariAyarlari.oku().acik { UyariMotoru.izinIste() }
+
+        // Ana pencere kapanınca Dock'tan kalk (üst barda kal); yeniden açılınca Dock'a dön.
+        // (SwiftUI pencereyi kapatınca içeriği silmeyip gizlediği için bunu pencere sinyalleriyle yapıyoruz.)
+        let anaPencere: (Notification) -> Bool = { ($0.object as? NSWindow)?.title == "Nabız" }
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { n in
+            guard anaPencere(n), UserDefaults.standard.bool(forKey: Prefs.showMenuBar, default: true) else { return }
+            NSApp.setActivationPolicy(.accessory)
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { n in
+            guard anaPencere(n), NSApp.activationPolicy() != .regular else { return }
+            NSApp.setActivationPolicy(.regular)
+        }
     }
 
     // Nabız öndeyken de bildirim görünsün.
