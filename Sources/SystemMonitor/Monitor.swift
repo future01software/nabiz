@@ -47,6 +47,9 @@ final class Sampler {
     private var prevDisk: (UInt64, UInt64)?
     private var identity: [pid_t: (start: timeval, name: String, path: String, isApp: Bool, bundle: String?)] = [:]
     private var users: [uid_t: String] = [:]
+    private var sayac = 0
+    private var onbellekDiskler: [VolumeInfo] = []
+    private var onbellekBaglantilar: [InterfaceInfo] = []
     private let timebase: (numer: UInt64, denom: UInt64) = {
         var tb = mach_timebase_info_data_t()
         mach_timebase_info(&tb)
@@ -103,8 +106,14 @@ final class Sampler {
         snap.gpu = Hardware.gpu()
         snap.battery = Hardware.battery()
         snap.disk = Hardware.diskSpace()
-        snap.volumes = Hardware.volumes()
-        snap.interfaces = Hardware.interfaces()
+        // Bağlı diskler ve ağ bağlantıları nadiren değişir: ~20 saniyede bir yenile.
+        if sayac % 10 == 0 || onbellekDiskler.isEmpty {
+            onbellekDiskler = Hardware.volumes()
+            onbellekBaglantilar = Hardware.interfaces()
+        }
+        sayac += 1
+        snap.volumes = onbellekDiskler
+        snap.interfaces = onbellekBaglantilar
 
         // Processes
         snap.processes = sampleProcesses(elapsed: elapsed)
@@ -182,23 +191,48 @@ final class Monitor: ObservableObject {
     private var counter = 0
     private var iconCache: [pid_t: NSImage] = [:]
 
+    private var olcuyor = false
+    private var gozlemciler: [NSObjectProtocol] = []
+
     init() {
+        let kayitli = UserDefaults.standard.double(forKey: Prefs.interval)
+        if kayitli > 0 { interval = kayitli }
         tick()
         restartTimer()
+        // Ayarlar penceresinde yenileme sıklığı değişince (ana pencere kapalı olsa bile) hemen uygula.
+        gozlemciler.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                let yeni = UserDefaults.standard.double(forKey: Prefs.interval)
+                if yeni > 0, let self, self.interval != yeni { self.interval = yeni }
+            }
+        })
+        // Kapanırken bugünkü toplamları diske yaz.
+        gozlemciler.append(NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.daily.save() }
+        })
     }
 
     private func restartTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
         }
+        // .common: tablo kaydırılırken ya da menü açıkken de saymaya devam etsin.
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     func tick() {
+        // Önceki ölçüm bitmeden yenisini başlatma (yoğun anlarda istekler üst üste binmesin).
+        guard !olcuyor else { return }
+        olcuyor = true
         let sampler = self.sampler
         queue.async {
             let snap = sampler.sample()
-            DispatchQueue.main.async { [weak self] in self?.apply(snap) }
+            DispatchQueue.main.async { [weak self] in
+                self?.olcuyor = false
+                self?.apply(snap)
+            }
         }
     }
 
@@ -258,15 +292,21 @@ final class Monitor: ObservableObject {
     enum QuitError: LocalizedError {
         case notPermitted(String)
         case failed(String)
+        case korunan(String)
         var errorDescription: String? {
             switch self {
+            case .korunan(let n): return "“\(n)” macOS'un çalışması için gerekli bir sistem işlemi. Kapatılırsa oturumunuz kapanabilir ve kaydedilmemiş işleriniz kaybolabilir; Nabız bunu kapatmaz."
             case .notPermitted(let n): return "macOS “\(n)” işlemini durdurmaya izin vermiyor. Başka bir kullanıcıya ya da sisteme ait."
             case .failed(let n): return "“\(n)” durdurulamadı."
             }
         }
     }
 
+    /// Kapatılınca oturumu kapatan ya da Mac'i kilitleyen süreçler.
+    nonisolated static let korunanlar: Set<String> = ["loginwindow", "WindowServer", "kernel_task", "launchd", "logd", "opendirectoryd", "securityd", "coreservicesd"]
+
     func quit(_ proc: ProcInfo, force: Bool) throws {
+        if Self.korunanlar.contains(proc.name) || proc.id <= 1 { throw QuitError.korunan(proc.name) }
         if let app = NSRunningApplication(processIdentifier: proc.id) {
             let ok = force ? app.forceTerminate() : app.terminate()
             if ok { scheduleRefresh(); return }

@@ -139,8 +139,8 @@ enum Hardware {
         guard var battery = info else { return nil }
 
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        defer { if service != 0 { IOObjectRelease(service) } }
         if service != 0, var p = registryProperties(service) {
-            defer { IOObjectRelease(service) }
             // Newer macOS versions keep the details inside "BatteryData".
             if let nested = p["BatteryData"] as? [String: Any] {
                 p.merge(nested) { top, _ in top }

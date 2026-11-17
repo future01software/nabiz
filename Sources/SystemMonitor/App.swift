@@ -6,7 +6,6 @@ struct SystemMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var monitor = Monitor()
     @AppStorage(Prefs.showMenuBar) private var showMenuBar = true
-    @AppStorage(Prefs.interval) private var interval = 2.0
     @AppStorage(Prefs.appearance) private var appearance = Appearance.system.rawValue
 
     var body: some Scene {
@@ -14,8 +13,6 @@ struct SystemMonitorApp: App {
             ContentView()
                 .environmentObject(monitor)
                 .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
-                .onAppear { monitor.interval = interval }
-                .onChange(of: interval) { _, new in monitor.interval = new }
         }
         .defaultSize(width: 1240, height: 860)
 

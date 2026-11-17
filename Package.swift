@@ -5,6 +5,7 @@ let package = Package(
     name: "SystemMonitor",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "SystemMonitor", path: "Sources/SystemMonitor")
+        .executableTarget(name: "SystemMonitor", path: "Sources/SystemMonitor"),
+        .testTarget(name: "SystemMonitorTests", dependencies: ["SystemMonitor"], path: "Tests/SystemMonitorTests")
     ]
 )

@@ -111,28 +111,75 @@ struct MenuBarView: View {
     @EnvironmentObject private var monitor: Monitor
     @Environment(\.openWindow) private var openWindow
     @AppStorage(Prefs.accent) private var accentHex = Color.defaultAccentHex
+    @AppStorage(Prefs.colorful) private var colorful = true
 
     var body: some View {
-        let accent = Color(hex: accentHex)
+        let palette = Palette(colorful: colorful, accent: Color(hex: accentHex))
         let s = monitor.snapshot
         let h = monitor.history
-        let top = s.processes.sorted { $0.avgCPU > $1.avgCPU }.prefix(6)
-        let capacity = max(2, Int((60 / monitor.interval).rounded()))
+        let enYogun = s.processes.sorted { $0.avgCPU > $1.avgCPU }.prefix(5)
+        let kapasite = max(2, Int((60 / monitor.interval).rounded()))
+        let (durumSimge, durumRenk, durumYazi) = durum(s)
 
         VStack(alignment: .leading, spacing: 12) {
-            row("CPU", Fmt.percent(s.cpuTotal)) {
-                Sparkline(values: h.map(\.cpu), accent: accent, maxValue: 100)
+            // Başlık ve tek cümlelik durum
+            HStack(spacing: 10) {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Nabız").font(.headline)
+                    Label(durumYazi, systemImage: durumSimge)
+                        .font(.caption)
+                        .foregroundStyle(durumRenk)
+                }
+                Spacer()
             }
-            row("Bellek", "\(Fmt.bytes(s.memory.used)) / \(Fmt.bytes(s.memory.total))") {
-                Sparkline(values: h.map(\.memory), accent: accent, maxValue: 100)
+
+            // Mini kadranlar
+            HStack(spacing: 4) {
+                MiniKadran(baslik: "CPU", deger: Fmt.percent(s.cpuTotal), oran: s.cpuTotal / 100, renk: palette.color(.cpu))
+                MiniKadran(baslik: "Bellek", deger: Fmt.percent(s.memory.usedFraction * 100), oran: s.memory.usedFraction,
+                           renk: s.memory.pressureLevel > 1 ? .orange : palette.color(.memory))
+                if let g = s.gpu {
+                    MiniKadran(baslik: "GPU", deger: Fmt.percent(g.utilization), oran: g.utilization / 100, renk: palette.color(.gpu))
+                }
+                if let b = s.battery {
+                    MiniKadran(baslik: b.isCharging ? "Pil ⚡︎" : "Pil", deger: Fmt.percent(b.percent), oran: b.percent / 100,
+                               renk: b.percent < 15 && !b.onAC ? .red : palette.color(.battery))
+                } else {
+                    let dolu = s.disk.total == 0 ? 0 : 1 - Double(s.disk.free) / Double(s.disk.total)
+                    MiniKadran(baslik: "Disk", deger: Fmt.percent(dolu * 100), oran: dolu, renk: palette.color(.disk))
+                }
             }
-            row("Ağ", "↓ \(Fmt.rate(s.netIn))  ↑ \(Fmt.rate(s.netOut))") {
-                DualSparkline(a: h.map(\.netIn), b: h.map(\.netOut), accent: accent)
+
+            // Son 3 dakika: CPU ve bellek üst üste
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Text("Son \(Int(Double(monitor.historyLength) * monitor.interval / 60)) dakika").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    nokta("CPU", palette.color(.cpu)); nokta("Bellek", palette.color(.memory))
+                }
+                ZStack {
+                    Sparkline(values: h.map(\.memory), accent: palette.color(.memory), maxValue: 100, kapasite: monitor.historyLength)
+                    Sparkline(values: h.map(\.cpu), accent: palette.color(.cpu), maxValue: 100, kapasite: monitor.historyLength)
+                }
+                .frame(height: 46)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.35)))
             }
+
+            // Ağ
+            HStack(spacing: 8) {
+                Image(systemName: "network").foregroundStyle(palette.color(.network))
+                Text("↓ \(Fmt.rate(s.netIn))").monospacedDigit()
+                Text("↑ \(Fmt.rate(s.netOut))").monospacedDigit().foregroundStyle(.secondary)
+                Spacer()
+                AynaGrafik(ust: h.map(\.netIn), alt: h.map(\.netOut), renk: palette.color(.network), kapasite: monitor.historyLength)
+                    .frame(width: 110, height: 24)
+            }
+            .font(.callout)
 
             Divider()
             Text("Son 1 dakikada en yoğunlar").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(Array(top)) { p in
+            ForEach(Array(enYogun)) { p in
                 HStack(spacing: 8) {
                     if let icon = monitor.icon(for: p) {
                         Image(nsImage: icon).resizable().frame(width: 16, height: 16)
@@ -141,16 +188,15 @@ struct MenuBarView: View {
                     }
                     Text(p.name).lineLimit(1)
                     Spacer(minLength: 4)
-                    MiniGraph(values: p.cpuHistory, accent: accent, capacity: capacity)
-                        .frame(width: 80, height: 18)
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(String(format: "%.1f%%", p.cpu)).monospacedDigit()
-                        Text("ort. \(String(format: "%.1f", p.avgCPU))").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                    }
-                    .frame(width: 54, alignment: .trailing)
+                    MiniGraph(values: p.cpuHistory, accent: palette.color(.cpu), capacity: kapasite)
+                        .frame(width: 70, height: 16)
+                    Text(String(format: "%.0f%%", p.avgCPU))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, alignment: .trailing)
                 }
                 .font(.callout)
-                .help(p.path)
+                .help("\(p.path)\nŞu an %\(String(format: "%.1f", p.cpu)) · son 1 dakika ortalaması %\(String(format: "%.1f", p.avgCPU))")
             }
 
             Divider()
@@ -159,27 +205,59 @@ struct MenuBarView: View {
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
                 Spacer()
                 SettingsLink { Image(systemName: "gearshape") }
                     .buttonStyle(.borderless)
                     .help("Ayarlar")
-                Button("Kapat") { NSApp.terminate(nil) }
+                Button("Nabız'dan Çık") { NSApp.terminate(nil) }
+                    .help("Nabız'ı tamamen kapatır; menü çubuğundan da kalkar")
             }
         }
         .padding(14)
-        .frame(width: 360)
-        .tint(accent)
+        .frame(width: 340)
     }
 
-    private func row<C: View>(_ title: String, _ value: String, @ViewBuilder chart: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Text(value).font(.callout.weight(.medium)).monospacedDigit()
+    private func nokta(_ ad: String, _ renk: Color) -> some View {
+        HStack(spacing: 4) { Circle().fill(renk).frame(width: 7, height: 7); Text(ad) }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+    }
+
+    private func durum(_ s: Snapshot) -> (String, Color, String) {
+        if s.memory.pressureLevel >= 4 { return ("exclamationmark.triangle.fill", .red, "Bellek tükeniyor") }
+        if s.memory.pressureLevel >= 2 { return ("exclamationmark.circle.fill", .orange, "Bellek daraldı") }
+        if s.cpuTotal >= 70 { return ("flame.fill", .orange, "Mac çok çalışıyor") }
+        if s.cpuTotal >= 30 { return ("bolt.fill", .yellow, "Yoğun") }
+        return ("leaf.fill", .green, "Her şey sakin")
+    }
+}
+
+/// Menü çubuğu penceresindeki küçük kadran.
+struct MiniKadran: View {
+    let baslik: String
+    let deger: String
+    let oran: Double
+    let renk: Color
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                ArcGauge(fraction: oran, color: renk, size: 56, lineWidth: 6)
+                Text(deger)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 10)
             }
-            chart().frame(height: 32)
+            .frame(width: 60, height: 56)
+            Text(baslik)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(renk)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

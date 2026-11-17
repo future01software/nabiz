@@ -63,10 +63,26 @@ struct ContentView: View {
                 case .network: NetworkPage(palette: palette)
                 case .battery: BatteryPage(palette: palette)
                 case .processes:
+                    let satirlar = rows   // her yenilemede bir kez hesapla
                     VStack(spacing: 0) {
-                        processTable
+                        HStack {
+                            Picker("Göster", selection: $filter) {
+                                ForEach(ProcessFilter.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+                            Spacer()
+                            Text("Seçip sağ tıklayın: Kapat, Zorla Kapat, Finder'da Göster")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                         Divider()
-                        statusBar
+                        processTable(satirlar)
+                        Divider()
+                        statusBar(gosterilen: satirlar.count)
                     }
                 }
             }
@@ -77,15 +93,6 @@ struct ContentView: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Ad, PID veya kullanıcı ara")
         .onChange(of: search) { _, new in if !new.isEmpty { tab = .processes } }
         .toolbar {
-            if tab == .processes {
-                ToolbarItem(placement: .navigation) {
-                    Picker("Göster", selection: $filter) {
-                        ForEach(ProcessFilter.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
-                }
-            }
             if tab == .processes { ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     stop(selected, force: false)
@@ -121,8 +128,8 @@ struct ContentView: View {
         confirmForce.count == 1 ? "“\(confirmForce[0].name)” zorla kapatılsın mı?" : "\(confirmForce.count) işlem zorla kapatılsın mı?"
     }
 
-    private var processTable: some View {
-        Table(rows, selection: $selection, sortOrder: $sortOrder) {
+    private func processTable(_ satirlar: [ProcInfo]) -> some View {
+        Table(satirlar, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Ad", value: \.name) { p in
                 HStack(spacing: 6) {
                     if let icon = monitor.icon(for: p) {
@@ -196,13 +203,13 @@ struct ContentView: View {
         }
     }
 
-    private var statusBar: some View {
+    private func statusBar(gosterilen: Int) -> some View {
         let procs = monitor.snapshot.processes
         let threads = procs.reduce(0) { $0 + Int($1.threads) }
         return HStack {
             Text("\(procs.count) işlem · \(threads) iş parçacığı")
             Spacer()
-            if rows.count != procs.count { Text("\(rows.count) gösteriliyor") }
+            if gosterilen != procs.count { Text("\(gosterilen) gösteriliyor") }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -268,101 +275,44 @@ struct CPUCell: View {
     }
 }
 
-// MARK: - Summary cards
+// MARK: - Hafif grafikler (Canvas: Swift Charts'tan çok daha az işlemci harcar)
 
-struct SummaryCards: View {
-    @EnvironmentObject private var monitor: Monitor
-    let accent: Color
-
-    var body: some View {
-        let s = monitor.snapshot
-        let h = monitor.history
-        HStack(alignment: .top, spacing: 12) {
-            MetricCard(title: "CPU", icon: "cpu", value: Fmt.percent(s.cpuTotal),
-                       detail: "Kullanıcı \(Fmt.percent(s.cpuUser)) · Sistem \(Fmt.percent(s.cpuSystem))") {
-                VStack(spacing: 6) {
-                    Sparkline(values: h.map(\.cpu), accent: accent, maxValue: 100)
-                    CoreBars(cores: s.cores, accent: accent)
-                }
-            }
-            MetricCard(title: "Bellek", icon: "memorychip",
-                       value: "\(Fmt.bytes(s.memory.used)) / \(Fmt.bytes(s.memory.total))",
-                       detail: memoryDetail(s.memory)) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Sparkline(values: h.map(\.memory), accent: accent, maxValue: 100)
-                    PressureBadge(level: s.memory.pressureLevel)
-                }
-            }
-            MetricCard(title: "Ağ", icon: "arrow.up.arrow.down",
-                       value: "↓ \(Fmt.rate(s.netIn))",
-                       detail: "↑ \(Fmt.rate(s.netOut))") {
-                DualSparkline(a: h.map(\.netIn), b: h.map(\.netOut), accent: accent)
-            }
-            MetricCard(title: "Disk", icon: "internaldrive",
-                       value: "R \(Fmt.rate(s.diskRead))",
-                       detail: "W \(Fmt.rate(s.diskWrite))") {
-                DualSparkline(a: h.map(\.diskRead), b: h.map(\.diskWrite), accent: accent)
-            }
-        }
+/// Değerleri sağa yaslı çizer (en yeni değer en sağda). `kapasite` kadar noktaya yer ayırır.
+private func cizgiYolu(_ degerler: [Double], tepe: Double, boyut: CGSize, kapasite: Int, ters: Bool = false, orta: CGFloat? = nil) -> (cizgi: Path, alan: Path)? {
+    guard degerler.count > 1, tepe > 0 else { return nil }
+    let n = max(kapasite, degerler.count)
+    let adim = boyut.width / CGFloat(n - 1)
+    let x0 = boyut.width - adim * CGFloat(degerler.count - 1)
+    let taban = orta ?? boyut.height
+    let yukseklik = orta ?? boyut.height
+    var cizgi = Path()
+    for (i, v) in degerler.enumerated() {
+        let oran = CGFloat(min(max(v / tepe, 0), 1))
+        let y = ters ? taban + (boyut.height - taban) * oran : taban - yukseklik * oran
+        let p = CGPoint(x: x0 + adim * CGFloat(i), y: y)
+        i == 0 ? cizgi.move(to: p) : cizgi.addLine(to: p)
     }
-
-    private func memoryDetail(_ m: MemoryInfo) -> String {
-        var parts = ["App \(Fmt.bytes(m.app))", "Wired \(Fmt.bytes(m.wired))", "Compressed \(Fmt.bytes(m.compressed))"]
-        if m.swapUsed > 0 { parts.append("Swap \(Fmt.bytes(m.swapUsed))") }
-        return parts.joined(separator: " · ")
-    }
-}
-
-struct MetricCard<Content: View>: View {
-    let title: String
-    let icon: String
-    let value: String
-    let detail: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title3.weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            content
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
+    var alan = cizgi
+    alan.addLine(to: CGPoint(x: boyut.width, y: taban))
+    alan.addLine(to: CGPoint(x: x0, y: taban))
+    alan.closeSubpath()
+    return (cizgi, alan)
 }
 
 struct Sparkline: View {
     let values: [Double]
     let accent: Color
     var maxValue: Double? = nil
+    var kapasite = 90
 
     var body: some View {
-        Chart(Array(values.enumerated()), id: \.offset) { i, v in
-            AreaMark(x: .value("t", i), y: .value("v", v))
-                .foregroundStyle(accent.opacity(0.25).gradient)
-                .interpolationMethod(.monotone)
-            LineMark(x: .value("t", i), y: .value("v", v))
-                .foregroundStyle(accent)
-                .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .interpolationMethod(.monotone)
+        Canvas { ctx, size in
+            let tepe = maxValue ?? max(1, values.max() ?? 1)
+            guard let y = cizgiYolu(values, tepe: tepe, boyut: size, kapasite: kapasite) else { return }
+            ctx.fill(y.alan, with: .linearGradient(Gradient(colors: [accent.opacity(0.35), accent.opacity(0.03)]),
+                                                   startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+            ctx.stroke(y.cizgi, with: .color(accent), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
         }
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartXScale(domain: 0...max(1, values.count - 1))
-        .chartYScale(domain: 0...(maxValue ?? max(1, values.max() ?? 1)))
-        .frame(height: 44)
     }
 }
 
@@ -370,66 +320,42 @@ struct DualSparkline: View {
     let a: [Double]
     let b: [Double]
     let accent: Color
+    var kapasite = 90
 
     var body: some View {
-        let top = max(1, (a + b).max() ?? 1)
-        Chart {
-            ForEach(Array(a.enumerated()), id: \.offset) { i, v in
-                LineMark(x: .value("t", i), y: .value("v", v), series: .value("s", "a"))
-                    .foregroundStyle(accent)
-                    .interpolationMethod(.monotone)
+        Canvas { ctx, size in
+            let tepe = max(1, (a + b).max() ?? 1)
+            if let y = cizgiYolu(a, tepe: tepe, boyut: size, kapasite: kapasite) {
+                ctx.stroke(y.cizgi, with: .color(accent), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
             }
-            ForEach(Array(b.enumerated()), id: \.offset) { i, v in
-                LineMark(x: .value("t", i), y: .value("v", v), series: .value("s", "b"))
-                    .foregroundStyle(accent.opacity(0.45))
-                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
-                    .interpolationMethod(.monotone)
+            if let y = cizgiYolu(b, tepe: tepe, boyut: size, kapasite: kapasite) {
+                ctx.stroke(y.cizgi, with: .color(accent.opacity(0.5)), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [3, 2]))
             }
         }
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartXScale(domain: 0...max(1, a.count - 1))
-        .chartYScale(domain: 0...top)
-        .frame(height: 44)
     }
 }
 
-struct CoreBars: View {
-    let cores: [Double]
-    let accent: Color
+/// Üstte bir seri (ör. indirme), altta aynalanmış ikinci seri (ör. yükleme).
+struct AynaGrafik: View {
+    let ust: [Double]
+    let alt: [Double]
+    let renk: Color
+    var kapasite = 90
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(Array(cores.enumerated()), id: \.offset) { _, v in
-                GeometryReader { geo in
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(accent)
-                            .frame(height: max(1, geo.size.height * v / 100))
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: 1.5).fill(.quaternary))
+        Canvas { ctx, size in
+            let tepe = max(1024, (ust + alt).max() ?? 1)
+            let orta = size.height / 2
+            if let y = cizgiYolu(ust, tepe: tepe, boyut: size, kapasite: kapasite, orta: orta) {
+                ctx.fill(y.alan, with: .linearGradient(Gradient(colors: [renk.opacity(0.7), renk.opacity(0.1)]),
+                                                       startPoint: .zero, endPoint: CGPoint(x: 0, y: orta)))
             }
-        }
-        .frame(height: 18)
-        .help("Her çubuk bir CPU çekirdeği")
-    }
-}
-
-struct PressureBadge: View {
-    let level: Int
-
-    var body: some View {
-        let (text, color): (String, Color) = switch level {
-        case 4: ("Bellek baskısı: kritik", .red)
-        case 2: ("Bellek baskısı: yüksek", .orange)
-        default: ("Bellek baskısı: normal", .green)
-        }
-        Label {
-            Text(text).font(.caption2).foregroundStyle(.secondary)
-        } icon: {
-            Circle().fill(color).frame(width: 7, height: 7)
+            if let y = cizgiYolu(alt, tepe: tepe, boyut: size, kapasite: kapasite, ters: true, orta: orta) {
+                ctx.fill(y.alan, with: .linearGradient(Gradient(colors: [renk.opacity(0.05), renk.opacity(0.4)]),
+                                                       startPoint: CGPoint(x: 0, y: orta), endPoint: CGPoint(x: 0, y: size.height)))
+            }
+            var cizgi = Path(); cizgi.move(to: CGPoint(x: 0, y: orta)); cizgi.addLine(to: CGPoint(x: size.width, y: orta))
+            ctx.stroke(cizgi, with: .color(.secondary.opacity(0.4)), lineWidth: 0.5)
         }
     }
 }

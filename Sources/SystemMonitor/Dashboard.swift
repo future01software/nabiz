@@ -192,25 +192,35 @@ struct DashboardView: View {
                     .buttonStyle(.plain)
                 }
             }
-            Chart {
-                ForEach(series, id: \.0) { metric, values in
-                    let shift = monitor.historyLength - values.count
-                    ForEach(Array(values.enumerated()), id: \.offset) { i, v in
-                        LineMark(x: .value("t", i + shift), y: .value("%", v), series: .value("m", metric.title))
-                            .foregroundStyle(palette.colorful ? palette.color(metric) : palette.accent.opacity(metric == .cpu ? 1 : metric == .memory ? 0.6 : 0.35))
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
-                            .interpolationMethod(.catmullRom)
+            let renkler = series.map { m, _ in palette.colorful ? palette.color(m) : palette.accent.opacity(m == .cpu ? 1 : m == .memory ? 0.6 : 0.35) }
+            let uzunluk = monitor.historyLength
+            HStack(spacing: 6) {
+            Canvas { ctx, size in
+                // Izgara: %0, %50, %100 (etiketler sağda, normal yazı olarak)
+                let alan = CGSize(width: size.width, height: size.height - 8)
+                for oran in [0.0, 0.5, 1.0] {
+                    let y = 4 + alan.height * (1 - oran)
+                    var c = Path(); c.move(to: CGPoint(x: 0, y: y)); c.addLine(to: CGPoint(x: alan.width, y: y))
+                    ctx.stroke(c, with: .color(.secondary.opacity(0.3)), style: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                }
+                // Seriler
+                for (i, (_, degerler)) in series.enumerated() where degerler.count > 1 {
+                    let adim = alan.width / CGFloat(max(uzunluk, degerler.count) - 1)
+                    let x0 = alan.width - adim * CGFloat(degerler.count - 1)
+                    var yol = Path()
+                    for (j, v) in degerler.enumerated() {
+                        let p = CGPoint(x: x0 + adim * CGFloat(j), y: 4 + alan.height * (1 - CGFloat(min(max(v / 100, 0), 1))))
+                        j == 0 ? yol.move(to: p) : yol.addLine(to: p)
                     }
+                    ctx.stroke(yol, with: .color(renkler[i]), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
             }
-            .chartXScale(domain: 0...max(1, monitor.historyLength - 1))
-            .chartYScale(domain: 0...100)
-            .chartXAxis(.hidden)
-            .chartYAxis {
-                AxisMarks(values: [0, 50, 100]) { v in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                    AxisValueLabel { if let n = v.as(Int.self) { Text("\(n)%") } }
-                }
+            VStack(alignment: .leading) {
+                Text("100%"); Spacer(); Text("50%"); Spacer(); Text("0%")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, -2)
             }
             .frame(minHeight: 90, maxHeight: .infinity)
         }
@@ -389,7 +399,6 @@ struct ArcGauge: View {
                     AngularGradient(colors: [color.opacity(0.55), color], center: .center,
                                     startAngle: .degrees(0), endAngle: .degrees(360 * sweep * max(f, 0.01))),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .animation(.easeOut(duration: 0.5), value: f)
             // ticks
             ForEach(0..<11) { i in
                 Capsule()
@@ -418,7 +427,6 @@ struct MirrorPanel: View {
     let footer: [(String, String)]
 
     var body: some View {
-        let top = max(1024, (up + down).max() ?? 1)
         Panel {
             HStack(alignment: .firstTextBaseline) {
                 Label(title, systemImage: icon).font(.headline)
@@ -430,28 +438,8 @@ struct MirrorPanel: View {
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
             }
-            Chart {
-                ForEach(Array(up.enumerated()), id: \.offset) { i, v in
-                    AreaMark(x: .value("t", i), yStart: .value("v", 0), yEnd: .value("v", v), series: .value("s", "up"))
-                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.7), color.opacity(0.1)],
-                                                        startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.monotone)
-                }
-                ForEach(Array(down.enumerated()), id: \.offset) { i, v in
-                    AreaMark(x: .value("t", i), yStart: .value("v", 0), yEnd: .value("v", -v), series: .value("s", "down"))
-                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.05), color.opacity(0.4)],
-                                                        startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.monotone)
-                }
-                RuleMark(y: .value("zero", 0))
-                    .foregroundStyle(.secondary.opacity(0.4))
-                    .lineStyle(StrokeStyle(lineWidth: 0.5))
-            }
-            .chartXScale(domain: 0...max(1, up.count - 1))
-            .chartYScale(domain: -top...top)
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .frame(minHeight: 40, maxHeight: .infinity)
+            AynaGrafik(ust: up, alt: down, renk: color)
+                .frame(minHeight: 40, maxHeight: .infinity)
 
             if !footer.isEmpty {
                 HStack {
