@@ -185,6 +185,7 @@ final class Monitor: ObservableObject {
     }
 
     let daily = DailyTracker()
+    let uyarilar = UyariMotoru()
     private let sampler = Sampler()
     private let queue = DispatchQueue(label: "SystemMonitor.sampler", qos: .utility)
     private var timer: Timer?
@@ -262,6 +263,7 @@ final class Monitor: ObservableObject {
                               cpuUser: snap.cpuUser, cpuSystem: snap.cpuSystem,
                               watts: snap.battery?.systemWatts ?? snap.battery?.watts ?? 0))
         daily.record(snap)
+        uyarilar.degerlendir(snap)
         if history.count > historyLength { history.removeFirst(history.count - historyLength) }
         let alive = Set(snap.processes.map(\.id))
         iconCache = iconCache.filter { alive.contains($0.key) }

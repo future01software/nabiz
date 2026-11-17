@@ -5,13 +5,14 @@ import AppKit
 // MARK: - Tabs
 
 enum AppTab: String, CaseIterable, Identifiable {
-    case overview, cpu, memory, gpu, disk, network, battery, processes
+    case overview, cpu, memory, gpu, disk, network, battery, processes, uyarilar
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .overview: "Genel Bakış"
         case .processes: "İşlemler"
+        case .uyarilar: "Uyarılar"
         default: metric!.title
         }
     }
@@ -26,6 +27,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .network: "network"
         case .battery: "battery.75percent"
         case .processes: "list.bullet.rectangle"
+        case .uyarilar: "bell.badge"
         }
     }
 
@@ -117,6 +119,9 @@ struct LiveTabBar: View {
             guard let b = s.battery else { return "—" }
             return Fmt.percent(b.percent) + (b.isCharging ? " ⚡︎" : "")
         case .processes: return "\(s.processes.count)"
+        case .uyarilar:
+            let n = monitor.uyarilar.okunmamis
+            return n > 0 ? "\(n) yeni" : "sakin"
         }
     }
 }

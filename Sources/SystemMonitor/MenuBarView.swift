@@ -16,8 +16,14 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
 struct MenuBarLabel: View {
     @ObservedObject var monitor: Monitor
     @AppStorage(Prefs.menuBarStyle) private var style = MenuBarStyle.meters
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        etiket
+            .onReceive(NotificationCenter.default.publisher(for: .nabizPencereAc)) { _ in openWindow(id: "main") }
+    }
+
+    @ViewBuilder private var etiket: some View {
         let s = monitor.snapshot
         let cpu = min(max(s.cpuTotal / 100, 0), 1)
         let ram = min(max(s.memory.usedFraction, 0), 1)
@@ -132,6 +138,20 @@ struct MenuBarView: View {
                         .foregroundStyle(durumRenk)
                 }
                 Spacer()
+            }
+
+            // Son 15 dakikadaki uyarı
+            if let u = monitor.uyarilar.gecmis.first, u.tarih > Date().addingTimeInterval(-15 * 60) {
+                Button {
+                    AppDelegate.uyarilariGoster()
+                } label: {
+                    UyariSatiri(uyari: u, kucuk: true)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(u.renk.opacity(0.12)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Uyarılar sekmesinde aç")
             }
 
             // Mini kadranlar
@@ -295,6 +315,9 @@ struct SettingsView: View {
                         .labelsHidden()
                 }
             }
+            Section("Uyarılar") {
+                UyariKurallari()
+            }
             Section("Davranış") {
                 Picker("Yenileme sıklığı", selection: $interval) {
                     Text("1 saniye").tag(1.0)
@@ -302,6 +325,12 @@ struct SettingsView: View {
                     Text("5 saniye").tag(5.0)
                 }
                 Toggle("Menü çubuğunda göster", isOn: $showMenuBar)
+                    .onChange(of: showMenuBar) { _, acik in
+                        // Üst bardan kaldırılırsa Nabız'a ulaşılabilsin diye Dock'a geri gelsin.
+                        if !acik { NSApp.setActivationPolicy(.regular) }
+                    }
+                Text("Pencere kapalıyken Nabız Dock'ta görünmez, sadece üst barda durur.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Menü çubuğu stili", selection: $menuBarStyle) {
                     ForEach(MenuBarStyle.allCases) { Text($0.title).tag($0) }
                 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 @main
 struct SystemMonitorApp: App {
@@ -31,10 +32,43 @@ struct SystemMonitorApp: App {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        // Pencere açılınca Dock'a gelir (ContentView), kapanınca sadece üst barda kalır.
+        // Pencere açıksa Dock'ta, değilse (sadece üst bar) Dock'ta görünmesin.
+        let pencereAcik = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
+        let ustBar = UserDefaults.standard.bool(forKey: Prefs.showMenuBar, default: true)
+        NSApp.setActivationPolicy(pencereAcik || !ustBar ? .regular : .accessory)
         NSApp.activate(ignoringOtherApps: true)
+        UNUserNotificationCenter.current().delegate = self
+        if UyariAyarlari.oku().acik { UyariMotoru.izinIste() }
+    }
+
+    // Nabız öndeyken de bildirim görünsün.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound, .list]
+    }
+
+    // Bildirime tıklanınca Nabız'ı Uyarılar sekmesinde aç.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        await MainActor.run { AppDelegate.uyarilariGoster() }
+    }
+
+    @MainActor static func uyarilariGoster() {
+        UserDefaults.standard.set(AppTab.uyarilar.rawValue, forKey: "selectedTab.v2")
+        NSApp.activate(ignoringOtherApps: true)
+        if let pencere = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("main") == true || $0.title == "Nabız" }) {
+            if pencere.isMiniaturized { pencere.deminiaturize(nil) }
+            pencere.makeKeyAndOrderFront(nil)
+        } else {
+            NotificationCenter.default.post(name: .nabizPencereAc, object: nil)
+        }
+    }
+
+    // Nabız zaten çalışırken Finder'dan tekrar açılırsa pencereyi göster.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { NotificationCenter.default.post(name: .nabizPencereAc, object: nil) }
+        return true
     }
 
     // Keep running in the menu bar when the window is closed (if the menu bar item is on).
