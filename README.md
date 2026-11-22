@@ -12,7 +12,7 @@ macOS için sade, Türkçe bir sistem izleyici. Activity Monitor'ün yaptığın
 
 ## Derleme
 ```bash
-./build-app.sh      # Nabız.app oluşturur
+./build-app.sh      # build.noindex/Nabız.app oluşturur (--install ile /Applications'a kurar ve açar)
 swift test          # testleri çalıştırır
 swift Tools/make-icon.swift "$PWD"   # simgeyi yeniden çizer
 ```
