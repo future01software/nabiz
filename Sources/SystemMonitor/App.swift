@@ -95,6 +95,7 @@ enum Prefs {
     static let appearance = "appearance"
     static let colorful = "colorfulMetrics"
     static let menuBarStyle = "menuBarStyle"
+    static let menuBarMode = "menuBarMode"
 }
 
 enum Appearance: String, CaseIterable, Identifiable {

@@ -13,9 +13,17 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// Menü çubuğunda ne kadar yer kaplanacağı.
+enum MenuBarMode: String, CaseIterable, Identifiable {
+    case compact, detailed
+    var id: String { rawValue }
+    var title: String { self == .compact ? "Kompakt" : "Ayrıntılı" }
+}
+
 struct MenuBarLabel: View {
     @ObservedObject var monitor: Monitor
     @AppStorage(Prefs.menuBarStyle) private var style = MenuBarStyle.meters
+    @AppStorage(Prefs.menuBarMode) private var mode = MenuBarMode.compact
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -27,7 +35,10 @@ struct MenuBarLabel: View {
         let s = monitor.snapshot
         let cpu = min(max(s.cpuTotal / 100, 0), 1)
         let ram = min(max(s.memory.usedFraction, 0), 1)
-        switch style {
+        if mode == .compact {
+            Image(nsImage: Self.render(MenuCompact(cpu: cpu, ram: ram)))
+        } else {
+            switch style {
         case .text:
             Text("CPU \(Int((cpu * 100).rounded()))%  RAM \(Int((ram * 100).rounded()))%")
                 .monospacedDigit()
@@ -35,6 +46,7 @@ struct MenuBarLabel: View {
             Image(nsImage: Self.render(MenuMeters(cpu: cpu, ram: ram)))
         case .rings:
             Image(nsImage: Self.render(MenuRings(cpu: cpu, ram: ram)))
+            }
         }
     }
 
@@ -47,6 +59,34 @@ struct MenuBarLabel: View {
         let image = renderer.nsImage ?? NSImage()
         image.isTemplate = true
         return image
+    }
+}
+
+/// Kompakt: yan yana iki dikey çubuk (sol CPU, sağ bellek) ve ikisinden yüksek olanın yüzdesi.
+/// Ayrıntılar menü açılınca görünür.
+struct MenuCompact: View {
+    let cpu: Double
+    let ram: Double
+
+    var body: some View {
+        HStack(spacing: 3) {
+            HStack(alignment: .bottom, spacing: 1.5) {
+                bar(cpu)
+                bar(ram)
+            }
+            Text("\(Int((max(cpu, ram) * 100).rounded()))")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .fixedSize()
+        }
+        .frame(height: 18)
+    }
+
+    private func bar(_ f: Double) -> some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 1.2).opacity(0.28)
+            RoundedRectangle(cornerRadius: 1.2).frame(height: max(1.5, 13 * f))
+        }
+        .frame(width: 3.5, height: 13)
     }
 }
 
@@ -287,6 +327,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.showMenuBar) private var showMenuBar = true
     @AppStorage(Prefs.colorful) private var colorful = true
     @AppStorage(Prefs.menuBarStyle) private var menuBarStyle = MenuBarStyle.meters
+    @AppStorage(Prefs.menuBarMode) private var menuBarMode = MenuBarMode.compact
     @AppStorage(Prefs.appearance) private var appearance = Appearance.system.rawValue
 
     private let presets = ["#2FB5A8", "#3B82F6", "#8B5CF6", "#EC4899", "#F97316", "#22C55E"]
@@ -331,10 +372,19 @@ struct SettingsView: View {
                     }
                 Text("Pencere kapalıyken Nabız Dock'ta görünmez, sadece üst barda durur.")
                     .font(.caption).foregroundStyle(.secondary)
+                Picker("Menü çubuğu görünümü", selection: $menuBarMode) {
+                    ForEach(MenuBarMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!showMenuBar)
+                Text(menuBarMode == .compact
+                     ? "Az yer kaplar: iki küçük çubuk (CPU, bellek) ve yüksek olanın değeri. Ayrıntılar menüyü açınca görünür."
+                     : "CPU ve bellek ayrı ayrı yazılır; menü çubuğunda daha çok yer kaplar.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Menü çubuğu stili", selection: $menuBarStyle) {
                     ForEach(MenuBarStyle.allCases) { Text($0.title).tag($0) }
                 }
-                .disabled(!showMenuBar)
+                .disabled(!showMenuBar || menuBarMode == .compact)
                 Toggle("Her gösterge için ayrı renk", isOn: $colorful)
             }
         }
