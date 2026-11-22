@@ -156,6 +156,15 @@ struct MenuRings: View {
 struct MenuBarView: View {
     @EnvironmentObject private var monitor: Monitor
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
+    /// Ayarlar penceresini (SwiftUI `Settings` sahnesi) öne getirir.
+    @MainActor static func ayarlariOneGetir() {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let pencere = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("Settings") == true }) else { return }
+        pencere.makeKeyAndOrderFront(nil)
+        pencere.orderFrontRegardless()
+    }
     @AppStorage(Prefs.accent) private var accentHex = Color.defaultAccentHex
     @AppStorage(Prefs.colorful) private var colorful = true
 
@@ -268,7 +277,13 @@ struct MenuBarView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(palette.accent)
                 Spacer()
-                SettingsLink { Image(systemName: "gearshape") }
+                // SettingsLink pencereyi açar ama Nabız sadece üst bardayken (Dock'ta değilken)
+                // uygulamayı öne almaz; Ayarlar o an öndeki uygulamanın arkasında kalıyordu.
+                Button {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                    DispatchQueue.main.async { Self.ayarlariOneGetir() }
+                } label: { Image(systemName: "gearshape") }
                     .buttonStyle(.borderless)
                     .help("Ayarlar")
                 Button("Nabız'dan Çık") { NSApp.terminate(nil) }
