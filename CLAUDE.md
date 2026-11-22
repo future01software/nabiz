@@ -5,7 +5,7 @@ macOS sistem izleyici (SwiftUI, Swift Package). Arayüz **Türkçe**, tasarım *
 ## Komutlar (tek tek, sade yaz)
 - Derle: `swift build`
 - Test: `swift test`
-- Uygulama paketi: `./build-app.sh` → `Nabız.app`
+- Uygulama paketi: `./build-app.sh` → `build.noindex/Nabız.app`; `./build-app.sh --install` → `/Applications/Nabız.app`'a kurar ve açar
 
 ## Yapı
 - `Sources/SystemMonitor/SystemStats.swift` — CPU, bellek, ağ, disk sayaçları (Mach/sysctl/IOKit)

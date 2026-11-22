@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds Nabız.app in this folder.
+# Builds build.noindex/Nabız.app; with --install also installs it to /Applications and opens it.
 #
 # İmza. SIGN_IDENTITY tanımlı değilse eskisi gibi ad hoc imzalanır (ilk açılışta macOS uyarı verir).
 #   SIGN_IDENTITY="Developer ID Application: Ad Soyad (TAKIMID)"  → hardened runtime ile Developer ID imzası
@@ -62,6 +62,20 @@ else
   fi
 fi
 
-rm -rf "Nabız.app"
-ditto "$APP" "Nabız.app"
-echo "Built $(pwd)/Nabız.app"
+# Çıktı build.noindex/ içine yazılır: ".noindex" ile biten klasörleri Spotlight taramaz, böylece
+# "Nabız" aranınca proje kopyası /Applications'takinin yanında ikinci bir uygulama olarak çıkmaz.
+OUT="build.noindex/Nabız.app"
+mkdir -p build.noindex
+rm -rf "$OUT"
+ditto "$APP" "$OUT"
+echo "Built $(pwd)/$OUT"
+
+# ./build-app.sh --install  →  /Applications/Nabız.app'a kurar ve açar.
+if [[ "${1:-}" == "--install" ]]; then
+  pkill -x SystemMonitor 2>/dev/null || true
+  sleep 0.5
+  rm -rf "/Applications/Nabız.app"
+  ditto "$APP" "/Applications/Nabız.app"
+  open "/Applications/Nabız.app"
+  echo "Kuruldu: /Applications/Nabız.app"
+fi
