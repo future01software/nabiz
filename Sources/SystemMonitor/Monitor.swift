@@ -45,6 +45,12 @@ final class Sampler {
     private var prevStamp: UInt64 = 0
     private var prevNet: (UInt64, UInt64)?
     private var prevDisk: (UInt64, UInt64)?
+
+    /// Bytes counted since the previous sample. Counters drop when an interface goes away (VPN off,
+    /// sleep/wake) or a disk is ejected; `&-` would then wrap to ~2^64 and poison the daily totals.
+    static func counterDelta(_ now: UInt64, _ before: UInt64) -> UInt64 {
+        now >= before ? now - before : 0
+    }
     private var identity: [pid_t: (start: timeval, name: String, path: String, isApp: Bool, bundle: String?)] = [:]
     private var users: [uid_t: String] = [:]
     private var sayac = 0
@@ -90,15 +96,15 @@ final class Sampler {
         // Network & disk rates
         let net = SystemStats.networkBytes()
         if let p = prevNet, elapsed > 0 {
-            snap.netIn = Double(net.received &- p.0) / elapsed
-            snap.netOut = Double(net.sent &- p.1) / elapsed
+            snap.netIn = Double(Self.counterDelta(net.received, p.0)) / elapsed
+            snap.netOut = Double(Self.counterDelta(net.sent, p.1)) / elapsed
         }
         prevNet = (net.received, net.sent)
 
         let disk = SystemStats.diskBytes()
         if let p = prevDisk, elapsed > 0 {
-            snap.diskRead = Double(disk.read &- p.0) / elapsed
-            snap.diskWrite = Double(disk.written &- p.1) / elapsed
+            snap.diskRead = Double(Self.counterDelta(disk.read, p.0)) / elapsed
+            snap.diskWrite = Double(Self.counterDelta(disk.written, p.1)) / elapsed
         }
         prevDisk = (disk.read, disk.written)
 

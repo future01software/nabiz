@@ -155,11 +155,17 @@ enum Fmt {
     }()
 
     static func rate(_ r: Double) -> String {
-        decimal.string(fromByteCount: Int64(max(0, r))) + "/sn"
+        decimal.string(fromByteCount: byteCount(r)) + "/sn"
     }
 
     static func total(_ b: Double) -> String {
-        decimal.string(fromByteCount: Int64(max(0, b)))
+        decimal.string(fromByteCount: byteCount(b))
+    }
+
+    /// Int64(x) traps for NaN, infinity or anything at/above 2^63; clamp instead of crashing.
+    static func byteCount(_ v: Double) -> Int64 {
+        guard v.isFinite, v > 0 else { return 0 }
+        return v >= 9.2e18 ? Int64.max : Int64(v)
     }
 
     static func minutes(_ m: Int) -> String {

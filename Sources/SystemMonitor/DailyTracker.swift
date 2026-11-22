@@ -15,6 +15,19 @@ struct DayTotals: Codable {
 
     var cpuAverage: Double { samples == 0 ? 0 : cpuSum / Double(samples) }
     var gpuAverage: Double { samples == 0 ? 0 : gpuSum / Double(samples) }
+
+    /// Byte totals above this are impossible for one day (1 PB): they come from a counter that
+    /// wrapped around before `Sampler.counterDelta` existed, and would crash formatting.
+    static let maxPlausibleBytes = 1e15
+
+    /// Same day with corrupt byte totals reset to 0 (the real value can't be recovered).
+    var sanitized: DayTotals {
+        func clean(_ v: Double) -> Double { v.isFinite && v >= 0 && v <= Self.maxPlausibleBytes ? v : 0 }
+        var d = self
+        d.netIn = clean(netIn); d.netOut = clean(netOut)
+        d.diskRead = clean(diskRead); d.diskWrite = clean(diskWrite)
+        return d
+    }
 }
 
 @MainActor
@@ -31,7 +44,7 @@ final class DailyTracker: ObservableObject {
     init() {
         if let data = UserDefaults.standard.data(forKey: key),
            let saved = try? JSONDecoder().decode([DayTotals].self, from: data) {
-            days = saved
+            days = saved.map(\.sanitized)
         }
     }
 
